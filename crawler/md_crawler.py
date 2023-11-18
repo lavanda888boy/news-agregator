@@ -1,9 +1,9 @@
 from bs4 import BeautifulSoup
 import requests
-import json
 
 
 GOV_URL = 'https://gov.md'
+NEWSMAKER_URL = ''
 
 
 def scanGovPage(url: str, headers) -> list:
@@ -52,18 +52,46 @@ def scanGovPage(url: str, headers) -> list:
     else:
         print(f"Request failed: {response.status_code}")
         return []
+    
+
+def scanLocalPage(url: str) -> list:
+    response = requests.get(url)
+    if response.status_code == 200:
+        parser = BeautifulSoup(response.content, features='html.parser')
+        parser.prettify()
+
+        news = []
+
+        news_block = parser.find('div', class_='evo-post-wrap')
+        for article in news_block.findChildren('article'):
+            info = {}
+
+            header = article.findChild(class_='evo-entry-title')
+            link = header.findChild('a', href=True)
+            
+            info['header'] = link.contents[0].strip()
+            info['link'] = link['href']
+
+            content = article.findChild('div', class_='evo-entry-content')
+            info['resume'] = content.findChild('p').contents[0].strip()
+
+            news.append(info)
+        
+        return news
+
+    else:
+        print(f"Request failed: {response.status_code}")
+        return []
 
 
 def main():
-    url = "https://gov.md/ro/comunicate-presa"
+    gov_url = "https://gov.md/ro/comunicate-presa"
+    newsmaker_url = "https://newsmaker.md/ro/politica/"
     headers = {"User-Agent":"Mozilla/5.0 (X11; Linux x86_64; rv:60.0) Gecko/20100101 Firefox/60.0","Accept":"text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"}
     
-    news = scanGovPage(url, headers)
+    gov_news = scanGovPage(gov_url, headers)
+    local_news = scanLocalPage(newsmaker_url)
     
-    with open('news.json', 'x') as file:
-        news_dict = {'news': news}
-        file.write(json.dumps(news_dict, ensure_ascii=False, indent=4))
-
-
+  
 if __name__ == "__main__":
     main()
