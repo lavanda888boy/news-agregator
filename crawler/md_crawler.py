@@ -1,10 +1,14 @@
 from bs4 import BeautifulSoup
 import requests
 import g4f
-import threading
+import pika
+from multiprocessing import Pool
 
 
 GOV_URL = 'https://gov.md'
+QUEUE = 'crawl'
+NUMBER_OF_PROCESSES = 8
+topics = ['Alegeri', 'Economie', 'Societate', 'Demonstratii', 'Politica']
 
 
 def scanGovPage(url: str, headers) -> list:
@@ -46,6 +50,7 @@ def scanGovPage(url: str, headers) -> list:
                     for span in spans:
                         info['resume'] += span.contents[0].strip()
 
+            info['status'] = 0
             news.append(info)
 
         return news
@@ -76,6 +81,7 @@ def scanLocalPage(url: str) -> list:
             content = article.findChild('div', class_='evo-entry-content')
             info['resume'] = content.findChild('p').contents[0].strip()
 
+            info['status'] = 1
             news.append(info)
         
         return news
@@ -100,12 +106,11 @@ def detectTopics(topics: list, text: str):
     return result
 
 
-def scanArticles(articles: list, topics: list):
-    for article in articles:
-        text = article['header'] + ' ' + article['resume']
-        t = detectTopics(topics, text)
-        article['topics'] = t
-        print(article)
+def processArticle(article):
+    text = article['header'] + ' ' + article['resume']
+    t = detectTopics(topics, text)
+    article['topics'] = t
+    print(article)
 
 
 def main():
@@ -115,10 +120,17 @@ def main():
     
     gov_news = scanGovPage(gov_url, headers)
     local_news = scanLocalPage(newsmaker_url)
+    
+    connection = pika.BlockingConnection(
+        pika.ConnectionParameters(host='localhost'))
+    channel = connection.channel()
+    channel.queue_declare(queue=QUEUE, durable=False)
 
-    topics = ['Alegeri', 'Economie', 'Societate', 'Demonstratii', 'Politica']
-    scanArticles(gov_news, topics)
-    scanArticles(local_news, topics)
+    with Pool(NUMBER_OF_PROCESSES) as pool:
+        pool.map(processArticle, gov_news)
+
+    with Pool(NUMBER_OF_PROCESSES) as pool:
+        pool.map(processArticle, local_news)
     
   
 if __name__ == "__main__":
