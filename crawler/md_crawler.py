@@ -1,8 +1,7 @@
 from bs4 import BeautifulSoup
 import requests
 import g4f
-import pika
-from multiprocessing import Pool
+from multiprocessing import Pool, Manager
 from datetime import datetime   
 from dotenv import load_dotenv
 from os import getenv
@@ -54,7 +53,7 @@ def scanGovPage(url: str, headers) -> list:
                     for span in spans:
                         info['body'] += span.contents[0].strip()
 
-            info['timestamp'] = datetime.now().strftime("%A, %B %d, %Y %H:%M:%S")
+            info['timestamp'] = datetime.now().strftime("%H:%M:%S")
             news.append(info)
 
         return news
@@ -85,7 +84,7 @@ def scanLocalPage(url: str) -> list:
             content = article.findChild('div', class_='evo-entry-content')
             info['body'] = content.findChild('p').contents[0].strip()
 
-            info['timestamp'] = datetime.now().strftime("%A, %B %d, %Y %H:%M:%S")
+            info['timestamp'] = datetime.now().strftime("%H:%M:%S")
             news.append(info)
         
         return news
@@ -105,7 +104,10 @@ def detectTopics(topics: list, text: str):
     result = []
     for topic in topics:
         if topic in response:
-            result.append(topic)
+            result.append({
+                'type': 1,
+                'name': topic
+            })
 
     return result
 
@@ -113,7 +115,13 @@ def detectTopics(topics: list, text: str):
 def processArticle(article):
     text = article['title'] + ' ' + article['body']
     t = detectTopics(topics, text)
-    article['topics'] = t
+    article['tags'] = t
+
+
+def processWrapper(article):
+    article_copy = article.copy()
+    processArticle(article_copy)
+    gov_news_shared.append(article_copy)
 
 
 def main():
@@ -122,22 +130,31 @@ def main():
     headers = {"User-Agent":"Mozilla/5.0 (X11; Linux x86_64; rv:60.0) Gecko/20100101 Firefox/60.0","Accept":"text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"}
     
     gov_news = scanGovPage(gov_url, headers)
+    global gov_news_shared
+
+    manager = Manager()
+    gov_news_shared = manager.list()
+
     local_news = scanLocalPage(newsmaker_url)
-    
-    connection = pika.BlockingConnection(
-        pika.ConnectionParameters(host='localhost'))
-    channel = connection.channel()
-    channel.queue_declare(queue=QUEUE, durable=False)
+    global local_news_shared
+    local_news_shared = manager.list()
 
     with Pool(NUMBER_OF_PROCESSES) as pool:
-        pool.map(processArticle, gov_news)
-    
+        pool.map(processWrapper, gov_news)
+
     with Pool(NUMBER_OF_PROCESSES) as pool:
-        pool.map(processArticle, local_news)
-    
+        pool.map(processWrapper, local_news)
+
+    gov_articles = []
+    for article in gov_news_shared:
+        gov_articles.append(article)
+
+    local_articles = []
+    for article in local_news_shared:
+        local_articles.append(article)
+
     news = {
-        'gov': gov_news,
-        'local': local_news,
+        'posts': gov_articles + local_articles
     }
 
     headers = {
@@ -146,11 +163,11 @@ def main():
     }
 
     load_dotenv()
-    response = requests.post(getenv('API_ADDRESS'), headers=headers, json=json.dumps(news, ensure_ascii=False))
+    response = requests.post(getenv('API_ADDRESS'), headers=headers, json=news)
     if response.status_code == 200:
         print("Request successful!")
     else:
-        print(f"Request failed with status code: {response.status_code}")
+        print(f"Request failed with status code: {response.content}")
     
   
 if __name__ == "__main__":
