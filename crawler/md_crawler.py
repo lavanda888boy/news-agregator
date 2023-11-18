@@ -1,9 +1,10 @@
 from bs4 import BeautifulSoup
 import requests
+import g4f
+import threading
 
 
 GOV_URL = 'https://gov.md'
-NEWSMAKER_URL = ''
 
 
 def scanGovPage(url: str, headers) -> list:
@@ -84,6 +85,29 @@ def scanLocalPage(url: str) -> list:
         return []
 
 
+def detectTopics(topics: list, text: str):
+    response = g4f.Completion.create(
+        model='text-davinci-003',
+        provider=g4f.Provider.Bing,
+        prompt=f'Which topics from these {topics} best correspond to the following text: {text}'
+    )
+
+    result = []
+    for topic in topics:
+        if topic in response:
+            result.append(topic)
+
+    return result
+
+
+def scanArticles(articles: list, topics: list):
+    for article in articles:
+        text = article['header'] + ' ' + article['resume']
+        t = detectTopics(topics, text)
+        article['topics'] = t
+        print(article)
+
+
 def main():
     gov_url = "https://gov.md/ro/comunicate-presa"
     newsmaker_url = "https://newsmaker.md/ro/politica/"
@@ -91,6 +115,10 @@ def main():
     
     gov_news = scanGovPage(gov_url, headers)
     local_news = scanLocalPage(newsmaker_url)
+
+    topics = ['Alegeri', 'Economie', 'Societate', 'Demonstratii', 'Politica']
+    scanArticles(gov_news, topics)
+    scanArticles(local_news, topics)
     
   
 if __name__ == "__main__":
