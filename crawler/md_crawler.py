@@ -5,7 +5,6 @@ from multiprocessing import Pool, Manager
 from datetime import datetime   
 from dotenv import load_dotenv
 from os import getenv
-import json
 
 
 GOV_URL = 'https://gov.md'
