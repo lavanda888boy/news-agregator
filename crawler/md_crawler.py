@@ -3,11 +3,15 @@ import requests
 import g4f
 import pika
 from multiprocessing import Pool
+from datetime import datetime   
+from dotenv import load_dotenv
+from os import getenv
+import json
 
 
 GOV_URL = 'https://gov.md'
 QUEUE = 'crawl'
-NUMBER_OF_PROCESSES = 8
+NUMBER_OF_PROCESSES = 12
 topics = ['Alegeri', 'Economie', 'Societate', 'Demonstratii', 'Politica']
 
 
@@ -27,13 +31,13 @@ def scanGovPage(url: str, headers) -> list:
             title = news_element.findChild('div', class_='views-field views-field-title')
             header = title.findChild('span', class_='field-content').findChild('a', href=True)
             
-            info['header'] = header.contents[0].strip()
+            info['title'] = header.contents[0].strip()
             info['link'] = GOV_URL + header['href']
 
             content = news_element.findChild('div', class_='views-field views-field-body').findChild('div', class_='field-content')
             
             if content.findChild('div') != None:
-                info['resume'] = content.findChild('div').contents[0].strip()
+                info['body'] = content.findChild('div').contents[0].strip()
             else:
                 content_paragraphs = content.findChildren('p')
 
@@ -43,14 +47,14 @@ def scanGovPage(url: str, headers) -> list:
                     if spans != []:
                         break
 
-                info['resume'] = ''
+                info['body'] = ''
                 if len(spans) == 0:
-                    info['resume'] = content_paragraphs[0].contents[0].strip()
+                    info['body'] = content_paragraphs[0].contents[0].strip()
                 else:
                     for span in spans:
-                        info['resume'] += span.contents[0].strip()
+                        info['body'] += span.contents[0].strip()
 
-            info['status'] = 0
+            info['timestamp'] = datetime.now().strftime("%A, %B %d, %Y %H:%M:%S")
             news.append(info)
 
         return news
@@ -75,13 +79,13 @@ def scanLocalPage(url: str) -> list:
             header = article.findChild(class_='evo-entry-title')
             link = header.findChild('a', href=True)
             
-            info['header'] = link.contents[0].strip()
+            info['title'] = link.contents[0].strip()
             info['link'] = link['href']
 
             content = article.findChild('div', class_='evo-entry-content')
-            info['resume'] = content.findChild('p').contents[0].strip()
+            info['body'] = content.findChild('p').contents[0].strip()
 
-            info['status'] = 1
+            info['timestamp'] = datetime.now().strftime("%A, %B %d, %Y %H:%M:%S")
             news.append(info)
         
         return news
@@ -107,10 +111,9 @@ def detectTopics(topics: list, text: str):
 
 
 def processArticle(article):
-    text = article['header'] + ' ' + article['resume']
+    text = article['title'] + ' ' + article['body']
     t = detectTopics(topics, text)
     article['topics'] = t
-    print(article)
 
 
 def main():
@@ -128,9 +131,26 @@ def main():
 
     with Pool(NUMBER_OF_PROCESSES) as pool:
         pool.map(processArticle, gov_news)
-
+    
     with Pool(NUMBER_OF_PROCESSES) as pool:
         pool.map(processArticle, local_news)
+    
+    news = {
+        'gov': gov_news,
+        'local': local_news,
+    }
+
+    headers = {
+        'Content-Type': 'application/json',
+        'X-Password': 'Djibouti',
+    }
+
+    load_dotenv()
+    response = requests.post(getenv('API_ADDRESS'), headers=headers, json=json.dumps(news, ensure_ascii=False))
+    if response.status_code == 200:
+        print("Request successful!")
+    else:
+        print(f"Request failed with status code: {response.status_code}")
     
   
 if __name__ == "__main__":
