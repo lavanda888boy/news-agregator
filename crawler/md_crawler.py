@@ -8,7 +8,6 @@ from os import getenv
 
 
 GOV_URL = 'https://gov.md'
-QUEUE = 'crawl'
 NUMBER_OF_PROCESSES = 12
 topics = ['Alegeri', 'Economie', 'Societate', 'Demonstratii', 'Politica']
 
